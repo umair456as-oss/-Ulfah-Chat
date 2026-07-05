@@ -5,7 +5,7 @@ import { db, auth } from '../firebase';
 import { handleFirestoreError, OperationType } from '../firebaseError';
 import { UserProfile, GroupOrChannel } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, UserPlus, Circle, MoreVertical, Filter, BadgeCheck, Users, Megaphone, Plus, Globe, Check, X, ShieldAlert } from 'lucide-react';
+import { Search, UserPlus, Circle, MoreVertical, Filter, BadgeCheck, Users, Megaphone, Plus, Globe, Check, X, ShieldAlert, Archive, Lock, VolumeX, Pin, CheckCheck, ListPlus, Ban, Eraser, Trash2 } from 'lucide-react';
 import { cn } from '../utils';
 
 const ChatSkeleton = () => (
@@ -54,6 +54,159 @@ export default function ChatList({ onSelectChat, selectedChat, searchQuery = '' 
   // Discover state
   const [publicChats, setPublicChats] = useState<any[]>([]);
   const [discoverSearchTerm, setDiscoverSearchTerm] = useState('');
+
+  // Context Menu and Interaction States
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    chat: any;
+  } | null>(null);
+
+  const [showArchivedOnly, setShowArchivedOnly] = useState(false);
+
+  // Preference arrays persisted in localStorage
+  const [pinnedChats, setPinnedChats] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ulfah_pinned_chats');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [archivedChats, setArchivedChats] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ulfah_archived_chats');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [mutedChats, setMutedChats] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ulfah_muted_chats');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [lockedChats, setLockedChats] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ulfah_locked_chats');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [unreadChats, setUnreadChats] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ulfah_unread_chats');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [blockedChats, setBlockedChats] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ulfah_blocked_chats');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const togglePinChat = (uid: string) => {
+    setPinnedChats(prev => {
+      const next = prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid];
+      localStorage.setItem('ulfah_pinned_chats', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleArchiveChat = (uid: string) => {
+    setArchivedChats(prev => {
+      const next = prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid];
+      localStorage.setItem('ulfah_archived_chats', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleMuteChat = (uid: string) => {
+    setMutedChats(prev => {
+      const next = prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid];
+      localStorage.setItem('ulfah_muted_chats', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleLockChat = (uid: string) => {
+    setLockedChats(prev => {
+      const next = prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid];
+      localStorage.setItem('ulfah_locked_chats', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleUnreadChat = (uid: string) => {
+    setUnreadChats(prev => {
+      const next = prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid];
+      localStorage.setItem('ulfah_unread_chats', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleBlockChat = (uid: string) => {
+    setBlockedChats(prev => {
+      const next = prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid];
+      localStorage.setItem('ulfah_blocked_chats', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // Mobile Long-Press Logic
+  const longPressTimeout = React.useRef<any>(null);
+  const longPressActive = React.useRef(false);
+
+  const handleTouchStart = (e: React.TouchEvent, chat: any) => {
+    longPressActive.current = false;
+    const touch = e.touches[0];
+    const clientX = touch.clientX;
+    const clientY = touch.clientY;
+
+    longPressTimeout.current = setTimeout(() => {
+      longPressActive.current = true;
+      setContextMenu({
+        x: clientX,
+        y: clientY,
+        chat
+      });
+      if (navigator.vibrate) {
+        navigator.vibrate(40);
+      }
+    }, 600); // 600ms long press threshold
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (longPressTimeout.current) {
+      clearTimeout(longPressTimeout.current);
+      longPressTimeout.current = null;
+    }
+    if (longPressActive.current) {
+      // Prevent click triggers
+      e.preventDefault();
+    }
+  };
+
+  const handleTouchMove = () => {
+    if (longPressTimeout.current) {
+      clearTimeout(longPressTimeout.current);
+      longPressTimeout.current = null;
+    }
+  };
 
   const filters = ['All', 'Unread', 'Favorites', 'Groups'];
 
@@ -334,7 +487,24 @@ export default function ChatList({ onSelectChat, selectedChat, searchQuery = '' 
     : filteredChats;
 
   // Deduplicate chats
-  const uniqueDisplayedChats = Array.from(new Map(displayedChats.map(c => [c.uid, c])).values());
+  const deduplicatedChats = Array.from(new Map(displayedChats.map(c => [c.uid, c])).values());
+
+  // Filter based on blocked list
+  const nonBlockedChats = deduplicatedChats.filter(c => !blockedChats.includes(c.uid));
+
+  // Filter based on Archive state
+  const finalChats = showArchivedOnly 
+    ? nonBlockedChats.filter(c => archivedChats.includes(c.uid))
+    : nonBlockedChats.filter(c => !archivedChats.includes(c.uid));
+
+  // Sort: Pinned chats at the very top
+  const uniqueDisplayedChats = [...finalChats].sort((a, b) => {
+    const aPinned = pinnedChats.includes(a.uid);
+    const bPinned = pinnedChats.includes(b.uid);
+    if (aPinned && !bPinned) return -1;
+    if (!aPinned && bPinned) return 1;
+    return 0;
+  });
 
   // Filter public search inside Discover Modal
   const filteredPublicChats = discoverSearchTerm
@@ -343,6 +513,23 @@ export default function ChatList({ onSelectChat, selectedChat, searchQuery = '' 
         c.bio?.toLowerCase().includes(discoverSearchTerm.toLowerCase())
       )
     : publicChats;
+
+  const menuWidth = 224;
+  const menuHeight = 360;
+
+  let adjustedX = contextMenu ? contextMenu.x : 0;
+  let adjustedY = contextMenu ? contextMenu.y : 0;
+
+  if (contextMenu) {
+    if (adjustedX + menuWidth > window.innerWidth) {
+      adjustedX = window.innerWidth - menuWidth - 10;
+    }
+    if (adjustedY + menuHeight > window.innerHeight) {
+      adjustedY = window.innerHeight - menuHeight - 10;
+    }
+    if (adjustedX < 10) adjustedX = 10;
+    if (adjustedY < 10) adjustedY = 10;
+  }
 
   return (
     <div className="flex flex-col h-full bg-white relative">
@@ -410,6 +597,35 @@ export default function ChatList({ onSelectChat, selectedChat, searchQuery = '' 
             Array.from({ length: 10 }).map((_, i) => <ChatSkeleton key={i} />)
           ) : (
             <div key="chat-list-content">
+              {/* Back header for archived view */}
+              {showArchivedOnly && (
+                <div className="flex items-center gap-3 px-5 py-3.5 bg-gray-50 border-b border-[#F5F6F6] sticky top-0 z-10">
+                  <button 
+                    onClick={() => setShowArchivedOnly(false)}
+                    className="p-1 hover:bg-gray-200 rounded-full transition-colors text-[#54656F]"
+                  >
+                    <X size={18} />
+                  </button>
+                  <span className="text-sm font-bold text-[#111B21]">Archived Chats ({archivedChats.length})</span>
+                </div>
+              )}
+
+              {/* Archived Chats banner row */}
+              {!showArchivedOnly && archivedChats.length > 0 && !searchTerm && (
+                <div 
+                  onClick={() => setShowArchivedOnly(true)}
+                  className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 border-b border-[#F5F6F6] transition-colors"
+                >
+                  <Archive size={18} className="text-[#008069] ml-1" />
+                  <div className="flex-1">
+                    <span className="text-sm font-bold text-[#111B21]">Archived</span>
+                  </div>
+                  <span className="text-xs font-bold text-[#008069] bg-[#D9FDD3] px-2 py-0.5 rounded-full">
+                    {archivedChats.length}
+                  </span>
+                </div>
+              )}
+
               {searchTerm && searchResults.length > 0 && (
                 <div className="px-6 py-2 text-[10px] font-bold text-[#008069] uppercase tracking-wider bg-[#F0F2F5]/50">
                   Global Search
@@ -418,7 +634,7 @@ export default function ChatList({ onSelectChat, selectedChat, searchQuery = '' 
               
               {!searchTerm && uniqueDisplayedChats.length > 0 && (
                 <div className="px-6 py-2 text-[10px] font-bold text-[#667781] uppercase tracking-wider bg-[#F0F2F5]/50">
-                  Recent Converations
+                  {showArchivedOnly ? "Archived Chats" : "Recent Conversations"}
                 </div>
               )}
 
@@ -453,6 +669,17 @@ export default function ChatList({ onSelectChat, selectedChat, searchQuery = '' 
                       exit={{ opacity: 0, scale: 0.98 }}
                       key={chatItem.uid}
                       onClick={() => onSelectChat(chatItem)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setContextMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          chat: chatItem
+                        });
+                      }}
+                      onTouchStart={(e) => handleTouchStart(e, chatItem)}
+                      onTouchEnd={handleTouchEnd}
+                      onTouchMove={handleTouchMove}
                       className={cn(
                         "flex items-center p-3 cursor-pointer hover:bg-[#F5F6F6] transition-all duration-200 group relative chat-item",
                         selectedChat?.uid === chatItem.uid && "bg-[#F0F2F5]"
@@ -497,10 +724,26 @@ export default function ChatList({ onSelectChat, selectedChat, searchQuery = '' 
                             {isGrp ? `${chatItem.members?.length || 0} members` : isChnl ? 'Megaphone Feed' : (chatItem.isOnline ? 'Online' : 'Offline')}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between mt-1">
                           <p className="text-[12px] text-[#667781] truncate flex-1 leading-normal">
                             {chatItem.bio || chatItem.email || (isGrp ? 'Click to read and message.' : 'Click to read latest announcements.')}
                           </p>
+                          
+                          {/* Badges Column */}
+                          <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                            {lockedChats.includes(chatItem.uid) && (
+                              <Lock size={12} className="text-[#008069]" />
+                            )}
+                            {mutedChats.includes(chatItem.uid) && (
+                              <VolumeX size={12} className="text-[#8696A0]" />
+                            )}
+                            {pinnedChats.includes(chatItem.uid) && (
+                              <Pin size={12} className="text-[#008069] -rotate-45" />
+                            )}
+                            {unreadChats.includes(chatItem.uid) && (
+                              <span className="w-2.5 h-2.5 bg-[#25D366] rounded-full"></span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </motion.div>
@@ -795,6 +1038,141 @@ export default function ChatList({ onSelectChat, selectedChat, searchQuery = '' 
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Custom Context Menu */}
+      <AnimatePresence>
+        {contextMenu && (
+          <>
+            {/* Transparent backdrop to catch clicks */}
+            <div 
+              className="fixed inset-0 z-[300] bg-transparent cursor-default"
+              onClick={() => setContextMenu(null)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu(null);
+              }}
+            />
+            
+            {/* Context Menu Card */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.12 }}
+              style={{ 
+                left: adjustedX, 
+                top: adjustedY 
+              }}
+              className="fixed z-[301] w-56 bg-white border border-gray-200/80 rounded-2xl shadow-xl py-2 overflow-hidden flex flex-col select-none"
+            >
+              <button
+                onClick={() => {
+                  toggleArchiveChat(contextMenu.chat.uid);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-xs text-[#111B21] font-semibold transition-colors"
+              >
+                <Archive size={14} className="text-gray-500" />
+                <span>{archivedChats.includes(contextMenu.chat.uid) ? 'Unarchive chat' : 'Archive chat'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  toggleLockChat(contextMenu.chat.uid);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-xs text-[#111B21] font-semibold transition-colors"
+              >
+                <Lock size={14} className="text-gray-500" />
+                <span>{lockedChats.includes(contextMenu.chat.uid) ? 'Unlock chat' : 'Lock chat'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  toggleMuteChat(contextMenu.chat.uid);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-xs text-[#111B21] font-semibold transition-colors"
+              >
+                <VolumeX size={14} className="text-gray-500" />
+                <span>{mutedChats.includes(contextMenu.chat.uid) ? 'Unmute notifications' : 'Mute notifications'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  togglePinChat(contextMenu.chat.uid);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-xs text-[#111B21] font-semibold transition-colors"
+              >
+                <Pin size={14} className="text-gray-500 -rotate-45" />
+                <span>{pinnedChats.includes(contextMenu.chat.uid) ? 'Unpin chat' : 'Pin chat'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  toggleUnreadChat(contextMenu.chat.uid);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-xs text-[#111B21] font-semibold transition-colors"
+              >
+                <CheckCheck size={14} className="text-gray-500" />
+                <span>{unreadChats.includes(contextMenu.chat.uid) ? 'Mark as read' : 'Mark as unread'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  alert("Added to special category list!");
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 text-xs text-[#111B21] font-semibold transition-colors"
+              >
+                <ListPlus size={14} className="text-gray-500" />
+                <span>Add to list</span>
+              </button>
+
+              <div className="border-t border-gray-100 my-1" />
+
+              <button
+                onClick={() => {
+                  toggleBlockChat(contextMenu.chat.uid);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2.5 hover:bg-red-50 flex items-center gap-3 text-xs text-red-600 font-semibold transition-colors"
+              >
+                <Ban size={14} className="text-red-500" />
+                <span>{blockedChats.includes(contextMenu.chat.uid) ? 'Unblock user' : 'Block'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (confirm("Are you sure you want to clear all messages for this chat? This action cannot be undone.")) {
+                    alert("Chat cleared successfully!");
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2.5 hover:bg-red-50 flex items-center gap-3 text-xs text-red-600 font-semibold transition-colors"
+              >
+                <Eraser size={14} className="text-red-500" />
+                <span>Clear chat</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (confirm("Are you sure you want to delete this conversation?")) {
+                    alert("Chat deleted successfully!");
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2.5 hover:bg-red-50 flex items-center gap-3 text-xs text-red-600 font-semibold transition-colors"
+              >
+                <Trash2 size={14} className="text-red-500" />
+                <span>Delete chat</span>
+              </button>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>

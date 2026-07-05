@@ -7,23 +7,127 @@ import {
   Trash2, Eye, Image as ImageIcon, Info, Link as LinkIcon,
   CircleDashed, ToggleLeft as Toggle, Clock, Sun, 
   Palette, Send, EyeOff, Languages, Volume2, History,
-  Database, HelpCircle, Users, Smile, BadgePlus, QrCode, PlusCircle
+  Database, HelpCircle, Users, Smile, BadgePlus, QrCode, PlusCircle,
+  Ban
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { UserProfile } from '../types';
 import { cn } from '../utils';
 import { auth, db } from '../firebase';
-import { updateDoc, doc } from 'firebase/firestore';
+import { updateDoc, doc, collection, query, where, getDocs } from 'firebase/firestore';
 
 interface SettingsProps {
   profile: UserProfile;
 }
 
-type SettingsTab = 'main' | 'account' | 'privacy' | 'lists' | 'chats' | 'notifications' | 'accessibility';
+type SettingsTab = 'main' | 'account' | 'privacy' | 'lists' | 'chats' | 'notifications' | 'accessibility' | 'blocked';
 
 export default function Settings({ profile }: SettingsProps) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<SettingsTab>('main');
+
+  const [blockedChats, setBlockedChats] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ulfah_blocked_chats');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  React.useEffect(() => {
+    const syncBlocked = () => {
+      try {
+        const saved = localStorage.getItem('ulfah_blocked_chats');
+        setBlockedChats(saved ? JSON.parse(saved) : []);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    window.addEventListener('ulfah_blocked_chats_changed', syncBlocked);
+    window.addEventListener('storage', syncBlocked);
+    return () => {
+      window.removeEventListener('ulfah_blocked_chats_changed', syncBlocked);
+      window.removeEventListener('storage', syncBlocked);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        setLoadingUsers(true);
+        const snap = await getDocs(query(collection(db, 'users')));
+        const usersList: UserProfile[] = [];
+        snap.forEach(doc => {
+          usersList.push({ uid: doc.id, ...doc.data() } as UserProfile);
+        });
+        setAllUsers(usersList);
+      } catch (err) {
+        console.error("Error fetching users for blocked list:", err);
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+    fetchUsers();
+  }, []);
+
+  const handleUnblock = (uid: string) => {
+    const next = blockedChats.filter(id => id !== uid);
+    setBlockedChats(next);
+    localStorage.setItem('ulfah_blocked_chats', JSON.stringify(next));
+    window.dispatchEvent(new Event('ulfah_blocked_chats_changed'));
+  };
+
+  // Profile editing states
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editName, setEditName] = useState(profile.displayName || '');
+  const [editUsername, setEditUsername] = useState(profile.username || '');
+  const [editBio, setEditBio] = useState(profile.bio || '');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [usernameError, setUsernameError] = useState('');
+
+  const checkUsernameAndSave = async () => {
+    if (!profile.uid) return;
+    setUsernameError('');
+    const cleanUsername = editUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    
+    if (!cleanUsername) {
+      setUsernameError('Username cannot be empty');
+      return;
+    }
+
+    if (cleanUsername !== (profile.username || '').toLowerCase()) {
+      try {
+        setIsSavingProfile(true);
+        const q = query(collection(db, 'users'), where('username', '==', cleanUsername));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          setUsernameError('Username already taken');
+          setIsSavingProfile(false);
+          return;
+        }
+      } catch (err) {
+        console.error('Error checking username:', err);
+      }
+    }
+
+    try {
+      setIsSavingProfile(true);
+      await updateDoc(doc(db, 'users', profile.uid), {
+        displayName: editName.trim(),
+        username: cleanUsername,
+        bio: editBio.trim()
+      });
+      setIsEditingProfile(false);
+    } catch (err) {
+      console.error('Failed to update profile:', err);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
   
   // Settings States initialized from profile or defaults
   const settings = profile.userSettings || {
@@ -100,6 +204,8 @@ export default function Settings({ profile }: SettingsProps) {
   const handleBack = () => {
     if (activeTab === 'main') {
       navigate(-1);
+    } else if (activeTab === 'blocked') {
+      setActiveTab('privacy');
     } else {
       setActiveTab('main');
     }
@@ -170,33 +276,110 @@ export default function Settings({ profile }: SettingsProps) {
       {renderHeader("Settings")}
       
       {/* Profile Section */}
-      <div className="p-4 flex items-center gap-4 cursor-pointer hover:bg-gray-50 transition-colors group mb-4 border-b border-gray-100">
-        <div className="relative">
-          <label className="cursor-pointer group">
-            <img 
-              src={profile.photoURL || `https://ui-avatars.com/api/?name=${profile.displayName}`}
-              className={cn(
-                "w-20 h-20 rounded-full object-cover border border-gray-100 shadow-sm",
-                isPhotoLoading && "opacity-50"
-              )}
-              alt="Profile"
-            />
-            <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-              <ImageIcon size={24} className="text-white" />
-            </div>
-            <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} disabled={isPhotoLoading} />
-          </label>
-        </div>
-        <div className="flex-1 min-w-0">
-          <h2 className="text-xl font-medium text-[#111B21] truncate">{profile.displayName}</h2>
-          <div className="inline-flex items-center gap-2 mt-1 px-3 py-1 bg-gray-50 rounded-full border border-gray-200">
-            <Smile size={14} className="text-[#25D366]" />
-            <span className="text-xs text-[#54656F] font-medium">{profile.bio || "Available"}</span>
+      <div className="p-4 bg-white border-b border-gray-100 mb-4">
+        <div className="flex items-start gap-4">
+          <div className="relative flex-shrink-0 mt-1">
+            <label className="cursor-pointer group block">
+              <img 
+                src={profile.photoURL || `https://ui-avatars.com/api/?name=${profile.displayName}`}
+                className={cn(
+                  "w-16 h-16 rounded-full object-cover border border-gray-100 shadow-sm",
+                  isPhotoLoading && "opacity-50"
+                )}
+                alt="Profile"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                <ImageIcon size={20} className="text-white" />
+              </div>
+              <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} disabled={isPhotoLoading} />
+            </label>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-           <QrCode className="text-[#008069] cursor-pointer" size={24} />
-           <PlusCircle className="text-[#008069] cursor-pointer" size={24} />
+          
+          {!isEditingProfile ? (
+            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => {
+              setEditName(profile.displayName || '');
+              setEditUsername(profile.username || '');
+              setEditBio(profile.bio || '');
+              setIsEditingProfile(true);
+            }}>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-[#111B21] truncate leading-tight">{profile.displayName}</h2>
+                <span className="text-xs text-[#008069] font-semibold hover:underline bg-[#D9FDD3] px-2 py-0.5 rounded-full">(Edit Profile)</span>
+              </div>
+              {profile.username && (
+                <p className="text-sm text-[#008069] font-medium mt-0.5">@{profile.username}</p>
+              )}
+              <div className="inline-flex items-center gap-1.5 mt-1.5 px-2.5 py-0.5 bg-gray-50 rounded-full border border-gray-100">
+                <Smile size={13} className="text-[#25D366]" />
+                <span className="text-[11px] text-[#54656F] font-medium truncate max-w-[150px]">{profile.bio || "Available"}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 space-y-3">
+              <div>
+                <label className="block text-[10px] text-[#54656F] font-bold uppercase tracking-wide mb-1">Display Name</label>
+                <input 
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 focus:border-[#008069] rounded px-3 py-1.5 text-xs text-gray-900 outline-none transition-colors"
+                  placeholder="Your Name"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-[#54656F] font-bold uppercase tracking-wide mb-1">Username</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">@</span>
+                  <input 
+                    type="text"
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 focus:border-[#008069] rounded pl-7 pr-3 py-1.5 text-xs text-gray-900 outline-none transition-colors"
+                    placeholder="username"
+                  />
+                </div>
+                {usernameError && (
+                  <p className="text-[10px] text-red-500 mt-1 font-semibold">{usernameError}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-[10px] text-[#54656F] font-bold uppercase tracking-wide mb-1">Bio (About)</label>
+                <input 
+                  type="text"
+                  value={editBio}
+                  onChange={(e) => setEditBio(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 focus:border-[#008069] rounded px-3 py-1.5 text-xs text-gray-900 outline-none transition-colors"
+                  placeholder="Hey there! I am using ChatApp."
+                />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button 
+                  onClick={checkUsernameAndSave}
+                  disabled={isSavingProfile}
+                  className="px-3.5 py-1.5 bg-[#008069] hover:bg-[#005e4d] text-white font-bold text-[11px] rounded-full transition-colors disabled:opacity-50"
+                >
+                  {isSavingProfile ? 'Saving...' : 'Save'}
+                </button>
+                <button 
+                  onClick={() => {
+                    setIsEditingProfile(false);
+                    setUsernameError('');
+                  }}
+                  disabled={isSavingProfile}
+                  className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold text-[11px] rounded-full transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          
+          {!isEditingProfile && (
+            <div className="flex items-center gap-2 flex-shrink-0 self-center">
+               <QrCode className="text-[#008069] cursor-pointer hover:bg-gray-100 p-1 rounded-full" size={28} />
+               <PlusCircle className="text-[#008069] cursor-pointer hover:bg-gray-100 p-1 rounded-full" size={28} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -347,6 +530,13 @@ export default function Settings({ profile }: SettingsProps) {
           const next = timers[(timers.indexOf(current as any) + 1) % timers.length];
           updateSetting('disappearingMessagesTimer', next);
         }}
+      />
+      <div className="h-px bg-gray-100 my-2" />
+      <SettingItem 
+        icon={Ban} 
+        title="Blocked contacts" 
+        subtitle={`${blockedChats.length} contacts`} 
+        onClick={() => setActiveTab('blocked')}
       />
     </div>
   );
@@ -560,6 +750,66 @@ export default function Settings({ profile }: SettingsProps) {
     </div>
   );
 
+  const renderBlocked = () => {
+    const blockedUsersList = allUsers.filter(u => blockedChats.includes(u.uid));
+
+    return (
+      <div className="flex flex-col bg-white h-full overflow-y-auto pb-20">
+        {renderHeader("Blocked contacts")}
+        <div className="px-4 py-3 text-[14px] font-bold text-[#667781] uppercase tracking-wide">
+          Blocked Users ({blockedUsersList.length})
+        </div>
+        
+        {loadingUsers && blockedUsersList.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-gray-500">
+            <span className="text-sm">Loading blocked contacts...</span>
+          </div>
+        ) : blockedUsersList.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+            <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+              <Ban size={32} className="text-gray-400" />
+            </div>
+            <h4 className="text-base font-bold text-gray-800">No blocked contacts</h4>
+            <p className="text-xs text-gray-500 mt-1 max-w-xs">
+              Blocked contacts will not be able to call you or send you messages. They will be listed here.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {blockedUsersList.map((blockedUser) => (
+              <div key={blockedUser.uid} className="flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors">
+                <div className="flex items-center gap-4">
+                  <img 
+                    src={blockedUser.photoURL || `https://ui-avatars.com/api/?name=${blockedUser.displayName}`}
+                    className="w-11 h-11 rounded-full object-cover border border-gray-200 shadow-sm"
+                    alt={blockedUser.displayName || 'User'}
+                    referrerPolicy="no-referrer"
+                  />
+                  <div>
+                    <h4 className="text-sm font-bold text-[#111B21]">{blockedUser.displayName || 'Unknown User'}</h4>
+                    {blockedUser.username && (
+                      <p className="text-xs text-gray-500">@{blockedUser.username}</p>
+                    )}
+                    {blockedUser.bio && (
+                      <p className="text-xs text-gray-400 truncate max-w-[180px] mt-0.5">{blockedUser.bio}</p>
+                    )}
+                  </div>
+                </div>
+                
+                <button
+                  onClick={() => handleUnblock(blockedUser.uid)}
+                  className="px-4 py-1.5 border border-red-200 hover:border-red-400 text-red-600 hover:bg-red-50 text-xs font-bold rounded-full transition-all"
+                >
+                  Unblock
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-[#f0f2f5] relative z-40 overflow-hidden">
       <AnimatePresence mode="wait">
@@ -578,6 +828,7 @@ export default function Settings({ profile }: SettingsProps) {
           {activeTab === 'chats' && renderChats()}
           {activeTab === 'notifications' && renderNotifications()}
           {activeTab === 'accessibility' && renderAccessibility()}
+          {activeTab === 'blocked' && renderBlocked()}
         </motion.div>
       </AnimatePresence>
     </div>

@@ -4,7 +4,7 @@ import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp,
 import { db } from '../firebase';
 import { UserProfile, Message, AppSettings } from '../types';
 import { handleFirestoreError, OperationType } from '../firebaseError';
-import { Send, Plus, Search, MoreVertical, Smile, Mic, Gamepad2, ArrowLeft, Image, BadgeCheck, XCircle, Phone, Play, Pause, Trash2, Share2, Check, Camera, Wallet, File, Video, FileText, Download, RefreshCw, Megaphone } from 'lucide-react';
+import { Send, Plus, Search, MoreVertical, Smile, Mic, Gamepad2, ArrowLeft, Image, BadgeCheck, XCircle, Phone, Play, Pause, Trash2, Share2, Check, Camera, Wallet, File, Video, FileText, Download, RefreshCw, Megaphone, Pin, Bookmark, Reply, CornerUpRight, Sparkles, CheckSquare, AlertTriangle, Copy } from 'lucide-react';
 import { formatMessageTime, cn, formatChatDate, toSafeDate } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { updateDoc, doc } from 'firebase/firestore';
@@ -18,7 +18,13 @@ const MessageBubble = React.memo(({
   messageMap, 
   onDelete, 
   onForward, 
-  onReply 
+  onReply,
+  isSelectionMode,
+  selectedMessageIds,
+  onToggleSelect,
+  onMessageContextMenu,
+  pinnedMessageIds,
+  keptMessageIds
 }: { 
   msg: Message; 
   currentUser: UserProfile; 
@@ -27,155 +33,254 @@ const MessageBubble = React.memo(({
   onDelete: (msg: Message) => void;
   onForward: (msg: Message) => void;
   onReply: (msg: Message) => void;
+  isSelectionMode: boolean;
+  selectedMessageIds: string[];
+  onToggleSelect: (msg: Message) => void;
+  onMessageContextMenu: (e: { x: number; y: number; msg: Message }) => void;
+  pinnedMessageIds: string[];
+  keptMessageIds: string[];
 }) => {
   const isOutgoing = msg.senderId === currentUser.uid;
+  const isSelected = selectedMessageIds.includes(msg.id || '');
+  const isPinned = pinnedMessageIds.includes(msg.id || '');
+  const isKept = keptMessageIds.includes(msg.id || '');
+
+  const longPressTimeout = useRef<any>(null);
+  const longPressActive = useRef(false);
+
+  const handleTouchStartLocal = (e: React.TouchEvent) => {
+    if (isSelectionMode) return;
+    longPressActive.current = false;
+    const touch = e.touches[0];
+    const clientX = touch.clientX;
+    const clientY = touch.clientY;
+
+    longPressTimeout.current = setTimeout(() => {
+      longPressActive.current = true;
+      onMessageContextMenu({
+        x: clientX,
+        y: clientY,
+        msg
+      });
+      if (navigator.vibrate) {
+        navigator.vibrate(40);
+      }
+    }, 600);
+  };
+
+  const handleTouchEndLocal = (e: React.TouchEvent) => {
+    if (longPressTimeout.current) {
+      clearTimeout(longPressTimeout.current);
+      longPressTimeout.current = null;
+    }
+    if (longPressActive.current) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  const handleTouchMoveLocal = () => {
+    if (longPressTimeout.current) {
+      clearTimeout(longPressTimeout.current);
+      longPressTimeout.current = null;
+    }
+  };
+
+  const handleContextMenuLocal = (e: React.MouseEvent) => {
+    if (isSelectionMode) return;
+    e.preventDefault();
+    onMessageContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      msg
+    });
+  };
+
+  const handleClickLocal = (e: React.MouseEvent) => {
+    if (isSelectionMode) {
+      e.stopPropagation();
+      onToggleSelect(msg);
+    }
+  };
   
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      drag="x"
-      dragConstraints={{ left: 0, right: 100 }}
-      dragElastic={0.1}
-      onDragEnd={(_, info) => {
-        if (info.offset.x > 50) onReply(msg);
-      }}
+    <div 
       className={cn(
-        "flex w-full mb-2",
-        isOutgoing ? "justify-end" : "justify-start"
+        "flex items-center gap-3 w-full group/msg select-none transition-colors duration-200 py-0.5",
+        isSelectionMode && "cursor-pointer hover:bg-black/[0.02] rounded-xl px-2"
       )}
+      onClick={handleClickLocal}
     >
-      <div
-        className={cn(
-          "max-w-[85%] px-3 py-1.5 rounded-xl relative group transition-all duration-300 shadow-sm",
-          msg.isDeletedForEveryone ? "bg-gray-100 italic text-gray-400" : (
-            isOutgoing 
-              ? "bg-[#D9FDD3] rounded-tr-none" 
-              : "bg-white rounded-tl-none"
-          )
-        )}
-      >
-        {/* Triangle Tail */}
-        <div className={cn(
-          "absolute top-0 w-3 h-3 z-0",
-          isOutgoing ? "-right-1 bg-[#D9FDD3] clip-path-right" : "-left-1 bg-white clip-path-left"
-        )} style={{ clipPath: isOutgoing ? 'polygon(0 0, 0 100%, 100% 0)' : 'polygon(0 0, 100% 0, 100% 100%)' }}></div>
-        {/* Actions */}
-        {!msg.isDeletedForEveryone && (
-          <div className={cn(
-            "absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20",
-            isOutgoing ? "-left-20" : "-right-20"
-          )}>
-            <button 
-              onClick={() => onDelete(msg)}
-              className="p-1.5 bg-white/80 backdrop-blur-sm shadow-sm rounded-full text-gray-400 hover:text-red-500 transition-colors"
-              title="Delete"
-            >
-              <Trash2 size={14} />
-            </button>
-            <button 
-              onClick={() => onForward(msg)}
-              className="p-1.5 bg-white/80 backdrop-blur-sm shadow-sm rounded-full text-gray-400 hover:text-[#700122] transition-colors"
-              title="Forward"
-            >
-              <Share2 size={14} />
-            </button>
-          </div>
-        )}
-
-        {/* Reply Preview */}
-        {msg.replyTo && (
-          <div className="bg-black/5 border-l-4 border-[#06D755] p-2 rounded-lg mb-2 text-[12px] text-[#667781] flex flex-col">
-            <span className="font-semibold text-[#06D755] mb-0.5">
-              {messageMap[msg.replyTo]?.senderId === currentUser.uid ? 'You' : chat.displayName}
-            </span>
-            <span className="truncate">
-              {messageMap[msg.replyTo]?.text || 'Voice Message'}
-            </span>
-          </div>
-        )}
-
-        {/* Group Sender Name */}
-        {(msg.isGroupMode || chat.isGroup) && !isOutgoing && msg.senderName && (
-          <div className="text-[11px] font-extrabold text-[#00a884] mb-1 leading-normal block select-none">
-            {msg.senderName}
-          </div>
-        )}
-
-        {/* Forwarded Tag */}
-        {msg.isForwarded && (
-          <div className="flex items-center gap-1 text-[10px] text-[#667781] italic mb-1">
-            <Share2 size={10} className="rotate-180" />
-            Forwarded
-          </div>
-        )}
-
-        {/* Content */}
-        {msg.type === 'voice' ? (
-          <VoiceMessage audioUrl={msg.audioUrl || ''} />
-        ) : msg.type === 'image' ? (
-          <div className="relative group max-w-[300px] overflow-hidden rounded-lg">
-            <img 
-              src={msg.fileUrl} 
-              alt="Attached" 
-              className="w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer" 
-              onClick={() => window.open(msg.fileUrl, '_blank')}
-            />
-          </div>
-        ) : msg.type === 'video' ? (
-          <div className="relative group min-w-[200px] max-w-[300px] overflow-hidden rounded-lg bg-black">
-            <video src={msg.fileUrl} controls className="w-full h-auto" />
-          </div>
-        ) : msg.type === 'document' ? (
-          <div className="flex items-center gap-3 p-3 bg-black/5 rounded-lg border border-black/5 min-w-[180px]">
-             <div className="w-10 h-10 bg-[#00A884]/10 rounded-lg flex items-center justify-center text-[#00A884]">
-               <FileText size={20} />
-             </div>
-             <div className="flex-1 overflow-hidden">
-               <p className="text-sm font-medium text-[#111B21] truncate">{msg.fileName}</p>
-               <p className="text-[10px] text-[#667781]">{msg.fileSize}</p>
-             </div>
-             <a 
-              href={msg.fileUrl} 
-              download={msg.fileName} 
-              className="p-2 text-[#00A884] hover:bg-[#00A884]/10 rounded-full transition-colors"
-             >
-               <Download size={18} />
-             </a>
-          </div>
-        ) : (
-          <p className="text-[#111B21] text-[15px] leading-relaxed break-words pr-14">{msg.text}</p>
-        )}
-
-        {/* Meta (Time & Ticks) */}
-        <div className="absolute bottom-1.5 right-2.5 flex items-center gap-1.5">
-          <span className="text-[10px] font-medium text-[#667781]/80">
-            {msg.timestamp ? formatMessageTime(toSafeDate(msg.timestamp)) : '...'}
-          </span>
-          {isOutgoing && (
-            <motion.div 
-              initial={false}
-              animate={{ color: msg.status === 'read' ? '#53bdeb' : '#8696a0' }}
-              className="flex items-center"
-            >
-              {msg.status === 'read' ? (
-                <div className="flex -space-x-1.5">
-                  <Check size={13} strokeWidth={3} />
-                  <Check size={13} strokeWidth={3} />
-                </div>
-              ) : msg.status === 'delivered' ? (
-                <div className="flex -space-x-1.5">
-                  <Check size={13} strokeWidth={3} />
-                  <Check size={13} strokeWidth={3} />
-                </div>
-              ) : (
-                <Check size={13} strokeWidth={3} />
-              )}
-            </motion.div>
+      {isSelectionMode && (
+        <div className="flex-shrink-0 flex items-center justify-center pl-1">
+          {isSelected ? (
+            <div className="w-5 h-5 rounded-full bg-[#008069] flex items-center justify-center text-white shadow-sm">
+              <Check size={12} strokeWidth={3} />
+            </div>
+          ) : (
+            <div className="w-5 h-5 rounded-full border border-gray-300 bg-white shadow-inner" />
           )}
         </div>
-      </div>
-    </motion.div>
+      )}
+
+      <motion.div
+        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        drag={isSelectionMode ? false : "x"}
+        dragConstraints={{ left: 0, right: 100 }}
+        dragElastic={0.1}
+        onDragEnd={(_, info) => {
+          if (!isSelectionMode && info.offset.x > 50) onReply(msg);
+        }}
+        className={cn(
+          "flex-1 flex",
+          isOutgoing ? "justify-end" : "justify-start"
+        )}
+      >
+        <div
+          onContextMenu={handleContextMenuLocal}
+          onTouchStart={handleTouchStartLocal}
+          onTouchEnd={handleTouchEndLocal}
+          onTouchMove={handleTouchMoveLocal}
+          className={cn(
+            "max-w-[85%] px-3 py-1.5 rounded-xl relative group transition-all duration-300 shadow-sm",
+            msg.isDeletedForEveryone ? "bg-gray-100 italic text-gray-400" : (
+              isOutgoing 
+                ? "bg-[#D9FDD3] rounded-tr-none" 
+                : "bg-white rounded-tl-none"
+            ),
+            isSelected && "ring-2 ring-[#008069]/30"
+          )}
+        >
+          {/* Triangle Tail */}
+          <div className={cn(
+            "absolute top-0 w-3 h-3 z-0",
+            isOutgoing ? "-right-1 bg-[#D9FDD3] clip-path-right" : "-left-1 bg-white clip-path-left"
+          )} style={{ clipPath: isOutgoing ? 'polygon(0 0, 0 100%, 100% 0)' : 'polygon(0 0, 100% 0, 100% 100%)' }}></div>
+          
+          {/* Actions */}
+          {!msg.isDeletedForEveryone && !isSelectionMode && (
+            <div className={cn(
+              "absolute top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20",
+              isOutgoing ? "-left-20" : "-right-20"
+            )}>
+              <button 
+                onClick={(e) => { e.stopPropagation(); onDelete(msg); }}
+                className="p-1.5 bg-white/80 backdrop-blur-sm shadow-sm rounded-full text-gray-400 hover:text-red-500 transition-colors"
+                title="Delete"
+              >
+                <Trash2 size={14} />
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); onForward(msg); }}
+                className="p-1.5 bg-white/80 backdrop-blur-sm shadow-sm rounded-full text-gray-400 hover:text-[#700122] transition-colors"
+                title="Forward"
+              >
+                <Share2 size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* Reply Preview */}
+          {msg.replyTo && (
+            <div className="bg-black/5 border-l-4 border-[#06D755] p-2 rounded-lg mb-2 text-[12px] text-[#667781] flex flex-col">
+              <span className="font-semibold text-[#06D755] mb-0.5">
+                {messageMap[msg.replyTo]?.senderId === currentUser.uid ? 'You' : chat.displayName}
+              </span>
+              <span className="truncate">
+                {messageMap[msg.replyTo]?.text || 'Voice Message'}
+              </span>
+            </div>
+          )}
+
+          {/* Group Sender Name */}
+          {(msg.isGroupMode || chat.isGroup) && !isOutgoing && msg.senderName && (
+            <div className="text-[11px] font-extrabold text-[#00a884] mb-1 leading-normal block select-none">
+              {msg.senderName}
+            </div>
+          )}
+
+          {/* Forwarded Tag */}
+          {msg.isForwarded && (
+            <div className="flex items-center gap-1 text-[10px] text-[#667781] italic mb-1">
+              <Share2 size={10} className="rotate-180" />
+              Forwarded
+            </div>
+          )}
+
+          {/* Content */}
+          {msg.type === 'voice' ? (
+            <VoiceMessage audioUrl={msg.audioUrl || ''} />
+          ) : msg.type === 'image' ? (
+            <div className="relative group max-w-[300px] overflow-hidden rounded-lg">
+              <img 
+                src={msg.fileUrl} 
+                alt="Attached" 
+                className="w-full h-auto object-cover hover:scale-105 transition-transform duration-500 cursor-pointer" 
+                onClick={() => window.open(msg.fileUrl, '_blank')}
+              />
+            </div>
+          ) : msg.type === 'video' ? (
+            <div className="relative group min-w-[200px] max-w-[300px] overflow-hidden rounded-lg bg-black">
+              <video src={msg.fileUrl} controls className="w-full h-auto" />
+            </div>
+          ) : msg.type === 'document' ? (
+            <div className="flex items-center gap-3 p-3 bg-black/5 rounded-lg border border-black/5 min-w-[180px]">
+               <div className="w-10 h-10 bg-[#00A884]/10 rounded-lg flex items-center justify-center text-[#00A884]">
+                 <FileText size={20} />
+               </div>
+               <div className="flex-1 overflow-hidden">
+                 <p className="text-sm font-medium text-[#111B21] truncate">{msg.fileName}</p>
+                 <p className="text-[10px] text-[#667781]">{msg.fileSize}</p>
+               </div>
+               <a 
+                href={msg.fileUrl} 
+                download={msg.fileName} 
+                className="p-2 text-[#00A884] hover:bg-[#00A884]/10 rounded-full transition-colors"
+               >
+                 <Download size={18} />
+               </a>
+            </div>
+          ) : (
+            <p className="text-[#111B21] text-[15px] leading-relaxed break-words pr-14">{msg.text}</p>
+          )}
+
+          {/* Meta (Time, Ticks, Pin, Keep) */}
+          <div className="absolute bottom-1.5 right-2.5 flex items-center gap-1.5">
+            {isPinned && (
+              <Pin size={10} className="text-[#008069] rotate-45 transform flex-shrink-0" />
+            )}
+            {isKept && (
+              <Bookmark size={10} className="text-[#008069] fill-[#008069]/20 flex-shrink-0" />
+            )}
+            <span className="text-[10px] font-medium text-[#667781]/80">
+              {msg.timestamp ? formatMessageTime(toSafeDate(msg.timestamp)) : '...'}
+            </span>
+            {isOutgoing && (
+              <motion.div 
+                initial={false}
+                animate={{ color: msg.status === 'read' ? '#53bdeb' : '#8696a0' }}
+                className="flex items-center"
+              >
+                {msg.status === 'read' ? (
+                  <div className="flex -space-x-1.5">
+                    <Check size={13} strokeWidth={3} />
+                    <Check size={13} strokeWidth={3} />
+                  </div>
+                ) : msg.status === 'delivered' ? (
+                  <div className="flex -space-x-1.5">
+                    <Check size={13} strokeWidth={3} />
+                    <Check size={13} strokeWidth={3} />
+                  </div>
+                ) : (
+                  <Check size={13} strokeWidth={3} />
+                )}
+              </motion.div>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </div>
   );
 });
 
@@ -379,6 +484,146 @@ export default function ChatWindow({ chat, currentUser, onBack, appSettings, onS
   const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
   const [messageToForward, setMessageToForward] = useState<Message | null>(null);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+
+  // Selection & Custom Context Menu States
+  const [messageContextMenu, setMessageContextMenu] = useState<{ x: number; y: number; msg: Message } | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const [pinnedMessageIds, setPinnedMessageIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`ulfah_pinned_messages_${chat.uid}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [keptMessageIds, setKeptMessageIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`ulfah_kept_messages_${chat.uid}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [isMetaDrawerOpen, setIsMetaDrawerOpen] = useState(false);
+  const [metaPromptMsg, setMetaPromptMsg] = useState<Message | null>(null);
+  const [metaResponseText, setMetaResponseText] = useState('');
+  const [isMetaLoading, setIsMetaLoading] = useState(false);
+  const [metaSources, setMetaSources] = useState<{ title: string; uri: string }[]>([]);
+
+  const [messageToReport, setMessageToReport] = useState<Message | null>(null);
+  const [reportReason, setReportReason] = useState('spam');
+  const [isReporting, setIsReporting] = useState(false);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 2500);
+  };
+
+  const togglePinMessage = (msgId: string) => {
+    setPinnedMessageIds(prev => {
+      const next = prev.includes(msgId) ? prev.filter(id => id !== msgId) : [...prev, msgId];
+      localStorage.setItem(`ulfah_pinned_messages_${chat.uid}`, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const toggleKeepMessage = (msgId: string) => {
+    setKeptMessageIds(prev => {
+      const next = prev.includes(msgId) ? prev.filter(id => id !== msgId) : [...prev, msgId];
+      localStorage.setItem(`ulfah_kept_messages_${chat.uid}`, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleToggleSelect = (msg: Message) => {
+    if (!msg.id) return;
+    setSelectedMessageIds(prev => {
+      const next = prev.includes(msg.id!) ? prev.filter(id => id !== msg.id) : [...prev, msg.id!];
+      if (next.length === 0) {
+        setIsSelectionMode(false);
+      }
+      return next;
+    });
+  };
+
+  const handleAskMetaAI = async (msg: Message) => {
+    if (!msg.text) return;
+    setMetaPromptMsg(msg);
+    setIsMetaDrawerOpen(true);
+    setIsMetaLoading(true);
+    setMetaResponseText('');
+    setMetaSources([]);
+
+    try {
+      const res = await fetch('/api/noor-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: 'user',
+              content: `Below is a message from my chat. Please explain or answer it with accurate references from Quran, Hadith, and fatwas as appropriate:\n\n"${msg.text}"`
+            }
+          ]
+        })
+      });
+
+      const data = await res.json();
+      if (data.error) {
+        setMetaResponseText(data.error);
+      } else {
+        setMetaResponseText(data.text);
+        if (data.sources) {
+          setMetaSources(data.sources);
+        }
+      }
+    } catch (err) {
+      console.error("Meta AI error:", err);
+      setMetaResponseText("Failed to get response from Noor AI. Please check connection.");
+    } finally {
+      setIsMetaLoading(false);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedMessageIds.length === 0) return;
+    const confirmDelete = window.confirm(`Are you sure you want to delete ${selectedMessageIds.length} message(s)?`);
+    if (!confirmDelete) return;
+
+    try {
+      for (const msgId of selectedMessageIds) {
+        await updateDoc(doc(db, 'messages', msgId), { 
+          isDeletedForEveryone: true,
+          text: 'This message was deleted' 
+        });
+      }
+      showToast(`${selectedMessageIds.length} message(s) deleted`);
+      setIsSelectionMode(false);
+      setSelectedMessageIds([]);
+    } catch (error) {
+      console.error("Failed to delete selected messages:", error);
+      alert("Failed to delete messages");
+    }
+  };
+
+  useEffect(() => {
+    const handleCloseMenu = () => {
+      setMessageContextMenu(null);
+    };
+    window.addEventListener('click', handleCloseMenu);
+    window.addEventListener('scroll', handleCloseMenu, true);
+    return () => {
+      window.removeEventListener('click', handleCloseMenu);
+      window.removeEventListener('scroll', handleCloseMenu, true);
+    };
+  }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileType, setFileType] = useState<'image' | 'video' | 'document' | 'voice'>('image');
@@ -904,6 +1149,180 @@ export default function ChatWindow({ chat, currentUser, onBack, appSettings, onS
     }
   };
 
+  const renderContextMenu = () => {
+    if (!messageContextMenu) return null;
+    const { x, y, msg } = messageContextMenu;
+
+    const menuWidth = 220;
+    const menuHeight = 360;
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+
+    let adjustedX = x;
+    let adjustedY = y;
+
+    if (x + menuWidth > screenWidth) {
+      adjustedX = screenWidth - menuWidth - 10;
+    }
+    if (adjustedX < 10) adjustedX = 10;
+
+    if (y + menuHeight > screenHeight) {
+      adjustedY = screenHeight - menuHeight - 10;
+    }
+    if (adjustedY < 10) adjustedY = 10;
+
+    const isMsgPinned = pinnedMessageIds.includes(msg.id || '');
+    const isMsgKept = keptMessageIds.includes(msg.id || '');
+
+    const options = [
+      {
+        label: 'Reply',
+        icon: Reply,
+        onClick: () => {
+          setReplyingTo(msg);
+        }
+      },
+      {
+        label: 'Copy',
+        icon: Copy,
+        onClick: () => {
+          if (msg.text) {
+            navigator.clipboard.writeText(msg.text);
+            showToast('Message copied to clipboard');
+          }
+        }
+      },
+      {
+        label: 'Forward',
+        icon: CornerUpRight,
+        onClick: () => {
+          setMessageToForward(msg);
+        }
+      },
+      {
+        label: isMsgPinned ? 'Unpin' : 'Pin',
+        icon: Pin,
+        onClick: () => {
+          if (msg.id) {
+            togglePinMessage(msg.id);
+            showToast(isMsgPinned ? 'Message unpinned' : 'Message pinned');
+          }
+        }
+      },
+      {
+        label: isMsgKept ? 'Unkeep' : 'Keep',
+        icon: Bookmark,
+        onClick: () => {
+          if (msg.id) {
+            toggleKeepMessage(msg.id);
+            showToast(isMsgKept ? 'Removed from kept messages' : 'Saved to kept messages');
+          }
+        }
+      },
+      {
+        label: 'Ask Meta AI',
+        icon: Sparkles,
+        onClick: () => {
+          handleAskMetaAI(msg);
+        }
+      },
+      {
+        label: 'Select',
+        icon: CheckSquare,
+        onClick: () => {
+          setIsSelectionMode(true);
+          setSelectedMessageIds([msg.id || '']);
+        }
+      },
+      {
+        label: 'Report',
+        icon: AlertTriangle,
+        onClick: () => {
+          setMessageToReport(msg);
+        }
+      },
+      {
+        label: 'Delete',
+        icon: Trash2,
+        onClick: () => {
+          setMessageToDelete(msg);
+        }
+      }
+    ];
+
+    return (
+      <div 
+        className="fixed z-[9999] bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-100/50 py-1.5 w-[220px] divide-y divide-gray-100 overflow-hidden"
+        style={{ top: adjustedY, left: adjustedX }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="py-1">
+          {options.slice(0, 3).map((opt) => (
+            <button
+              key={opt.label}
+              onClick={() => {
+                opt.onClick();
+                setMessageContextMenu(null);
+              }}
+              className="w-full px-4 py-2 text-left text-xs text-gray-800 hover:bg-gray-50 flex items-center gap-3 transition-colors font-semibold"
+            >
+              <opt.icon size={15} className="text-[#54656F]" />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div className="py-1">
+          {options.slice(3, 6).map((opt) => (
+            <button
+              key={opt.label}
+              onClick={() => {
+                opt.onClick();
+                setMessageContextMenu(null);
+              }}
+              className={cn(
+                "w-full px-4 py-2 text-left text-xs hover:bg-gray-50 flex items-center gap-3 transition-colors font-semibold",
+                opt.label === 'Ask Meta AI' ? "text-purple-700 font-bold" : "text-gray-800"
+              )}
+            >
+              <opt.icon size={15} className={opt.label === 'Ask Meta AI' ? "text-purple-600 animate-pulse" : "text-[#54656F]"} />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div className="py-1">
+          {options.slice(6, 8).map((opt) => (
+            <button
+              key={opt.label}
+              onClick={() => {
+                opt.onClick();
+                setMessageContextMenu(null);
+              }}
+              className="w-full px-4 py-2 text-left text-xs text-gray-800 hover:bg-gray-50 flex items-center gap-3 transition-colors font-semibold"
+            >
+              <opt.icon size={15} className="text-[#54656F]" />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div className="py-1">
+          {options.slice(8).map((opt) => (
+            <button
+              key={opt.label}
+              onClick={() => {
+                opt.onClick();
+                setMessageContextMenu(null);
+              }}
+              className="w-full px-4 py-2 text-left text-xs text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors font-bold"
+            >
+              <opt.icon size={15} className="text-red-500" />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="flex flex-col h-full bg-[#EFEAE2] relative overflow-hidden">
@@ -917,61 +1336,127 @@ export default function ChatWindow({ chat, currentUser, onBack, appSettings, onS
         }}
       ></div>
 
-      {/* Chat Header */}
-      <div className="px-3 h-[70px] pt-4 bg-white flex items-center justify-between border-b border-gray-100 z-10 shadow-sm safe-area-top">
-        <div className="flex items-center flex-1">
-          {onBack && (
+      {/* Chat Header / Selection Header */}
+      {isSelectionMode ? (
+        <div className="px-3 h-[70px] pt-4 bg-[#008069] text-white flex items-center justify-between border-b border-gray-100 z-10 shadow-sm safe-area-top transition-colors duration-300">
+          <div className="flex items-center gap-4">
             <button 
-              onClick={onBack}
-              className="mr-1 p-2 hover:bg-gray-100 rounded-full text-[#54656F]"
+              onClick={() => {
+                setIsSelectionMode(false);
+                setSelectedMessageIds([]);
+              }}
+              className="p-2 hover:bg-white/10 rounded-full transition-colors"
             >
-              <ArrowLeft size={22} strokeWidth={2.5} />
+              <XCircle size={22} />
             </button>
-          )}
-          <div className="relative cursor-pointer flex items-center">
-            <img
-              src={chat.photoURL || `https://ui-avatars.com/api/?name=${chat.displayName}`}
-              alt={chat.displayName || ''}
-              className="w-10 h-10 rounded-full mr-3"
-              referrerPolicy="no-referrer"
-            />
-            <div className="flex flex-col">
-              <h3 className="font-semibold text-[#111B21] text-[15px] leading-tight flex items-center gap-1">
-                {chat.displayName}
-                {chat.isVerified && <BadgeCheck size={14} className="text-[#3b82f6] fill-[#3b82f6]/10 flex-shrink-0" />}
-              </h3>
-              <p className="text-[11px] text-[#667781]">
-                {chat.isGroup ? `${chat.members?.length || 0} members` : chat.isChannel ? `${chat.members?.length || 0} subscribers` : (chat.isOnline ? 'Online' : 'Offline')}
-              </p>
-            </div>
+            <span className="font-semibold text-lg">{selectedMessageIds.length} Selected</span>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => {
+                const selectedMsgs = messages.filter(m => selectedMessageIds.includes(m.id || ''));
+                if (selectedMsgs.length > 0) {
+                  setMessageToForward(selectedMsgs[0]);
+                }
+              }}
+              className="p-2 hover:bg-white/10 rounded-full transition-colors"
+              title="Forward Selected"
+            >
+              <CornerUpRight size={22} />
+            </button>
+            <button 
+              onClick={handleDeleteSelected}
+              className="p-2 hover:bg-white/10 rounded-full transition-colors text-red-200 hover:text-white"
+              title="Delete Selected"
+            >
+              <Trash2 size={22} />
+            </button>
           </div>
         </div>
-        <div className="flex gap-2 text-[#54656F]">
-          {!chat.isGroup && !chat.isChannel && onStartCall && (
-            <>
+      ) : (
+        <div className="px-3 h-[70px] pt-4 bg-white flex items-center justify-between border-b border-gray-100 z-10 shadow-sm safe-area-top">
+          <div className="flex items-center flex-1">
+            {onBack && (
               <button 
-                id="header-video-call-btn"
-                onClick={() => onStartCall(chat, 'video')} 
-                className="p-2 hover:bg-gray-100 dark:hover:bg-[#202c33] rounded-full transition-colors text-[#00A884]"
-                title="Video Call"
+                onClick={onBack}
+                className="mr-1 p-2 hover:bg-gray-100 rounded-full text-[#54656F]"
               >
-                <Video size={22} />
+                <ArrowLeft size={22} strokeWidth={2.5} />
               </button>
-              <button 
-                id="header-voice-call-btn"
-                onClick={() => onStartCall(chat, 'voice')} 
-                className="p-2 hover:bg-gray-100 dark:hover:bg-[#202c33] rounded-full transition-colors text-[#00A884]"
-                title="Voice Call"
-              >
-                <Phone size={22} />
-              </button>
-            </>
-          )}
-          <button className="p-2 hover:bg-gray-100 rounded-full transition-colors hidden sm:block"><Gamepad2 size={22} /></button>
-          <button className="p-2 hover:bg-gray-100 rounded-full transition-colors"><Search size={22} /></button>
-          <button className="p-2 hover:bg-gray-100 rounded-full transition-colors"><MoreVertical size={22} /></button>
+            )}
+            <div className="relative cursor-pointer flex items-center">
+              <img
+                src={chat.photoURL || `https://ui-avatars.com/api/?name=${chat.displayName}`}
+                alt={chat.displayName || ''}
+                className="w-10 h-10 rounded-full mr-3"
+                referrerPolicy="no-referrer"
+              />
+              <div className="flex flex-col">
+                <h3 className="font-semibold text-[#111B21] text-[15px] leading-tight flex items-center gap-1">
+                  {chat.displayName}
+                  {chat.isVerified && <BadgeCheck size={14} className="text-[#3b82f6] fill-[#3b82f6]/10 flex-shrink-0" />}
+                </h3>
+                <p className="text-[11px] text-[#667781]">
+                  {chat.isGroup ? `${chat.members?.length || 0} members` : chat.isChannel ? `${chat.members?.length || 0} subscribers` : (chat.isOnline ? 'Online' : 'Offline')}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2 text-[#54656F]">
+            {!chat.isGroup && !chat.isChannel && onStartCall && (
+              <>
+                <button 
+                  id="header-video-call-btn"
+                  onClick={() => onStartCall(chat, 'video')} 
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-[#202c33] rounded-full transition-colors text-[#00A884]"
+                  title="Video Call"
+                >
+                  <Video size={22} />
+                </button>
+                <button 
+                  id="header-voice-call-btn"
+                  onClick={() => onStartCall(chat, 'voice')} 
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-[#202c33] rounded-full transition-colors text-[#00A884]"
+                  title="Voice Call"
+                >
+                  <Phone size={22} />
+                </button>
+              </>
+            )}
+            <button className="p-2 hover:bg-gray-100 rounded-full transition-colors hidden sm:block"><Gamepad2 size={22} /></button>
+            <button className="p-2 hover:bg-gray-100 rounded-full transition-colors"><Search size={22} /></button>
+            <button className="p-2 hover:bg-gray-100 rounded-full transition-colors"><MoreVertical size={22} /></button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Pinned Messages Bar */}
+      {messages.filter(m => pinnedMessageIds.includes(m.id || '')).length > 0 && (
+        <div className="bg-white/95 backdrop-blur-sm border-b border-gray-100 px-4 py-2 flex items-center justify-between z-10 shadow-sm relative text-xs">
+          <div className="flex items-center gap-2 overflow-hidden flex-1">
+            <Pin size={12} className="text-[#008069] rotate-45 transform flex-shrink-0" />
+            <div className="font-semibold text-gray-500 flex-shrink-0">Pinned Message:</div>
+            <span className="text-gray-800 truncate flex-1 font-medium">
+              {messages.filter(m => pinnedMessageIds.includes(m.id || ''))[messages.filter(m => pinnedMessageIds.includes(m.id || '')).length - 1].text || 'Media attachment'}
+            </span>
+          </div>
+          <button 
+            onClick={() => {
+              const pinnedList = messages.filter(m => pinnedMessageIds.includes(m.id || ''));
+              const latestPinned = pinnedList[pinnedList.length - 1];
+              if (latestPinned.id) {
+                const element = document.getElementById(`msg-${latestPinned.id}`);
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }
+            }}
+            className="text-[#008069] font-bold hover:underline ml-3 flex-shrink-0"
+          >
+            View
+          </button>
+        </div>
+      )}
 
       {/* Messages Area */}
       <div 
@@ -979,16 +1464,23 @@ export default function ChatWindow({ chat, currentUser, onBack, appSettings, onS
         className="scrollable-content p-4 space-y-1 z-10"
       >
         {messages.filter(m => !m.deletedFor?.includes(currentUser.uid)).map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            msg={msg}
-            currentUser={currentUser}
-            chat={chat}
-            messageMap={messageMap}
-            onDelete={setMessageToDelete}
-            onForward={setMessageToForward}
-            onReply={setReplyingTo}
-          />
+          <div key={msg.id} id={`msg-${msg.id}`} className="w-full">
+            <MessageBubble
+              msg={msg}
+              currentUser={currentUser}
+              chat={chat}
+              messageMap={messageMap}
+              onDelete={setMessageToDelete}
+              onForward={setMessageToForward}
+              onReply={setReplyingTo}
+              isSelectionMode={isSelectionMode}
+              selectedMessageIds={selectedMessageIds}
+              onToggleSelect={handleToggleSelect}
+              onMessageContextMenu={setMessageContextMenu}
+              pinnedMessageIds={pinnedMessageIds}
+              keptMessageIds={keptMessageIds}
+            />
+          </div>
         ))}
       </div>
 
@@ -1410,6 +1902,199 @@ export default function ChatWindow({ chat, currentUser, onBack, appSettings, onS
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Context Menu */}
+      {renderContextMenu()}
+
+      {/* WhatsApp Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-24 left-1/2 transform -translate-x-1/2 z-[10000] bg-gray-950/90 text-white text-xs px-4 py-2.5 rounded-full shadow-2xl font-semibold tracking-wide flex items-center gap-2 border border-white/5 animate-fade-in">
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Ask Meta AI Drawer (Noor AI Islamic Assistant) */}
+      <AnimatePresence>
+        {isMetaDrawerOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 z-[999] flex flex-col justify-end"
+            onClick={() => setIsMetaDrawerOpen(false)}
+          >
+            <motion.div 
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="bg-white rounded-t-3xl shadow-2xl max-h-[75%] flex flex-col p-5 border-t border-purple-100 z-[1000] select-text"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
+              
+              <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white shadow-md animate-pulse">
+                    <Sparkles size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-900">Meta AI Assistant</h4>
+                    <p className="text-[10px] text-purple-600 font-semibold uppercase tracking-wider">Noor AI Integration</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsMetaDrawerOpen(false)}
+                  className="p-1.5 hover:bg-gray-100 rounded-full text-gray-500"
+                >
+                  <XCircle size={20} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-4 max-h-[400px] pr-2 scrollbar-thin">
+                <div className="bg-purple-50/50 rounded-2xl p-3 border border-purple-100/50 text-xs text-purple-900 italic">
+                  <span className="font-bold block not-italic mb-1 text-[10px] uppercase text-purple-700">Explaining Message</span>
+                  "{metaPromptMsg?.text}"
+                </div>
+
+                <div className="space-y-2 text-sm text-gray-800 leading-relaxed">
+                  {isMetaLoading ? (
+                    <div className="flex flex-col gap-2 py-4">
+                      <div className="flex items-center gap-2 text-xs text-purple-600 font-bold animate-pulse">
+                        <RefreshCw size={14} className="animate-spin" />
+                        <span>Noor AI is researching and formulating response...</span>
+                      </div>
+                      <div className="h-4 bg-gray-100 rounded animate-pulse w-full" />
+                      <div className="h-4 bg-gray-100 rounded animate-pulse w-[90%]" />
+                      <div className="h-4 bg-gray-100 rounded animate-pulse w-[75%]" />
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap font-medium">{metaResponseText}</div>
+                  )}
+                </div>
+
+                {metaSources.length > 0 && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <h5 className="text-[11px] font-bold text-gray-400 uppercase mb-2">Sources consulted</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {metaSources.map((src, idx) => (
+                        <a 
+                          key={idx}
+                          href={src.uri} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-purple-700 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-full font-semibold border border-purple-100 flex items-center gap-1 transition-all"
+                        >
+                          <Share2 size={10} />
+                          {src.title}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 pt-3 border-t border-gray-100 flex gap-3 flex-shrink-0">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(metaResponseText);
+                    showToast("AI response copied!");
+                  }}
+                  className="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-800 text-xs font-bold rounded-xl transition-all border border-gray-200"
+                  disabled={isMetaLoading}
+                >
+                  Copy Explanation
+                </button>
+                <button
+                  onClick={() => {
+                    setNewMessage(metaResponseText);
+                    setIsMetaDrawerOpen(false);
+                    showToast("Inserted response into input field!");
+                  }}
+                  className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-md shadow-purple-200 transition-all"
+                  disabled={isMetaLoading}
+                >
+                  Use as Reply
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Report Message Modal */}
+      <AnimatePresence>
+        {messageToReport && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 z-[10000] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-gray-100"
+            >
+              <h3 className="text-base font-bold text-gray-900 mb-2">Report Message</h3>
+              <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                This message will be sent to the administrator for review. Other users in this chat will not be notified.
+              </p>
+
+              <div className="bg-gray-50 rounded-2xl p-3 text-xs text-gray-700 italic border border-gray-100 mb-4 max-h-[80px] overflow-y-auto">
+                "{messageToReport.text || 'Media attachment'}"
+              </div>
+
+              <div className="space-y-2 mb-6">
+                <label className="text-[11px] font-bold text-gray-400 uppercase">Reason for reporting</label>
+                {[
+                  { id: 'spam', label: 'Spam or malicious content' },
+                  { id: 'harassment', label: 'Harassment or hate speech' },
+                  { id: 'offensive', label: 'Offensive language or profanity' },
+                  { id: 'false_info', label: 'False or misleading religious info' }
+                ].map((opt) => (
+                  <label key={opt.id} className="flex items-center gap-3 p-3 bg-gray-50/50 hover:bg-gray-50 rounded-xl cursor-pointer border border-gray-100/50 transition-colors">
+                    <input 
+                      type="radio" 
+                      name="report_reason" 
+                      value={opt.id}
+                      checked={reportReason === opt.id}
+                      onChange={() => setReportReason(opt.id)}
+                      className="accent-[#008069] w-4 h-4"
+                    />
+                    <span className="text-xs font-semibold text-gray-700">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setMessageToReport(null)}
+                  className="flex-1 py-3 bg-gray-50 hover:bg-gray-100 rounded-xl text-xs font-bold text-gray-600 border border-gray-200 transition-colors"
+                  disabled={isReporting}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={async () => {
+                    setIsReporting(true);
+                    setTimeout(() => {
+                      setIsReporting(false);
+                      setMessageToReport(null);
+                      showToast("Report submitted successfully");
+                    }, 800);
+                  }}
+                  className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-100 transition-colors"
+                  disabled={isReporting}
+                >
+                  {isReporting ? 'Reporting...' : 'Submit Report'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </>

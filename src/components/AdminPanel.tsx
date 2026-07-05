@@ -467,6 +467,7 @@ export default function AdminPanel({ onExit }: AdminPanelProps) {
   const filteredUsers = users.filter(u => 
     u.email.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (u.username && u.username.toLowerCase().includes(searchTerm.toLowerCase())) ||
     u.phoneNumber?.includes(searchTerm)
   );
 
@@ -657,7 +658,7 @@ export default function AdminPanel({ onExit }: AdminPanelProps) {
                                       />
                                       {u.isVerified && <BadgeCheck size={14} className="text-[#3b82f6] fill-[#3b82f6]/20" />}
                                     </div>
-                                    <div className="text-[#858585] text-[10px]">{u.email}</div>
+                                    <div className="text-[#858585] text-[10px]">{u.email} {u.username && <span className="text-blue-400 font-bold ml-1">(@{u.username})</span>}</div>
                                   </div>
                                 </div>
                               </td>
@@ -781,7 +782,7 @@ export default function AdminPanel({ onExit }: AdminPanelProps) {
                                 {u.displayName}
                                 {u.isVerified && <BadgeCheck size={14} className="text-blue-400" />}
                               </div>
-                              <div className="text-[#858585] text-[10px]">{u.email}</div>
+                              <div className="text-[#858585] text-[10px]">{u.email} {u.username && <span className="text-blue-400 font-bold ml-1">(@{u.username})</span>}</div>
                             </div>
                           </div>
                           <span className={cn(
@@ -1962,6 +1963,26 @@ export default function AdminPanel({ onExit }: AdminPanelProps) {
                     />
                   </div>
                   <div>
+                    <label className="block text-[10px] text-[#858585] uppercase font-bold mb-1">Username</label>
+                    <input 
+                      type="text" 
+                      id="edit-username"
+                      className="w-full bg-[#1e1e1e] border border-[#333333] focus:border-blue-500 rounded px-3 py-2 text-white outline-none"
+                      defaultValue={selectedUser.username || ''}
+                      placeholder="e.g. user123"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#858585] uppercase font-bold mb-1">Bio (About)</label>
+                    <input 
+                      type="text" 
+                      id="edit-bio"
+                      className="w-full bg-[#1e1e1e] border border-[#333333] focus:border-blue-500 rounded px-3 py-2 text-white outline-none"
+                      defaultValue={selectedUser.bio || ''}
+                      placeholder="About user"
+                    />
+                  </div>
+                  <div>
                     <label className="block text-[10px] text-[#858585] uppercase font-bold mb-1">Manual Balance Adjustment</label>
                     <div className="flex items-center gap-2">
                       <span className="text-green-400 font-bold">Rs.</span>
@@ -2016,11 +2037,15 @@ export default function AdminPanel({ onExit }: AdminPanelProps) {
                     <button 
                       onClick={() => {
                         const newName = (document.getElementById('edit-name') as HTMLInputElement).value;
+                        const newUsername = (document.getElementById('edit-username') as HTMLInputElement).value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+                        const newBio = (document.getElementById('edit-bio') as HTMLInputElement).value.trim();
                         const newBalance = parseFloat((document.getElementById('edit-balance') as HTMLInputElement).value);
                         const newLevel = (document.getElementById('edit-level') as HTMLSelectElement).value;
                         const newBadges = (document.getElementById('edit-badges') as HTMLInputElement).value.split(',').map(b => b.trim()).filter(b => b);
                         updateDoc(doc(db, 'users', selectedUser.uid), { 
                           displayName: newName,
+                          username: newUsername,
+                          bio: newBio,
                           balance: newBalance,
                           level: newLevel,
                           badges: newBadges
