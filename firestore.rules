@@ -1,0 +1,226 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "abdulrehmanhabib.com@gmail.com");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidUser(data) {
+      return data.uid is string &&
+             data.email is string &&
+             data.balance is number &&
+             data.role in ['user', 'admin'] &&
+             (!('level' in data) || data.level in ['Bronze', 'Silver', 'Gold']) &&
+             (!('experience' in data) || data.experience is number) &&
+             (!('wallpaper' in data) || data.wallpaper is string) &&
+             (!('isShadowBanned' in data) || data.isShadowBanned is bool) &&
+             (!('isBanned' in data) || data.isBanned is bool) &&
+             (!('isVerified' in data) || data.isVerified is bool) &&
+             (!('displayName' in data) || data.displayName is string) &&
+             (!('photoURL' in data) || data.photoURL is string) &&
+             (!('phoneNumber' in data) || data.phoneNumber is string) &&
+             (!('isOnline' in data) || data.isOnline is bool) &&
+             (!('lastSeen' in data) || data.lastSeen is string) &&
+             (!('createdAt' in data) || data.createdAt is timestamp) &&
+             (!('ipAddress' in data) || data.ipAddress is string) &&
+             (!('deviceFingerprint' in data) || data.deviceFingerprint is string) &&
+             (!('clickCount' in data) || data.clickCount is number) &&
+             (!('lastClickTime' in data) || data.lastClickTime is number) &&
+             (!('badges' in data) || data.badges is list) &&
+             (!('pendingPassword' in data) || data.pendingPassword is string) &&
+             (!('mustChangePassword' in data) || data.mustChangePassword is bool) &&
+             (!('fcmToken' in data) || data.fcmToken is string) &&
+             (!('webPushSubscriptions' in data) || data.webPushSubscriptions is list);
+    }
+
+    function isValidMessage(data) {
+      return data.senderId is string &&
+             data.receiverId is string &&
+             data.text is string &&
+             data.text.size() < 10000 &&
+             (!('type' in data) || data.type in ['text', 'voice', 'image', 'support']) &&
+             (!('replyTo' in data) || data.replyTo == null || data.replyTo is string) &&
+             (!('status' in data) || data.status in ['sent', 'delivered', 'read']) &&
+             (!('isForwarded' in data) || data.isForwarded is bool) &&
+             (!('audioUrl' in data) || data.audioUrl == null || data.audioUrl is string) &&
+             (!('timestamp' in data) || data.timestamp is timestamp) &&
+             (!('deletedFor' in data) || data.deletedFor is list) &&
+             (!('isDeletedForEveryone' in data) || data.isDeletedForEveryone is bool);
+    }
+
+    function isValidWithdrawal(data) {
+      return data.userId is string &&
+             data.amount is number &&
+             data.amount > 0 &&
+             data.paymentMethod in ['EasyPaisa', 'JazzCash'] &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             (!('taxAmount' in data) || data.taxAmount is number) &&
+             (!('auditLog' in data) || data.auditLog is map);
+    }
+
+    function isValidStatus(data) {
+      return data.userId is string &&
+             data.displayName is string &&
+             data.imageUrl is string &&
+             data.caption is string &&
+             data.views is list;
+    }
+
+    function isValidSupportTicket(data) {
+      return data.userId is string &&
+             data.userName is string &&
+             data.status in ['open', 'closed'] &&
+             data.lastMessage is string;
+    }
+
+    function isValidActivityLog(data) {
+      return data.userId is string &&
+             data.userName is string &&
+             data.action is string;
+    }
+
+    function isValidCall(data) {
+      return data.callerId is string &&
+             data.receiverId is string &&
+             data.callerName is string &&
+             data.status in ['calling', 'ongoing', 'ended', 'missed', 'rejected'] &&
+             data.type in ['voice', 'video'] &&
+             (!('participants' in data) || data.participants is list) &&
+             (!('offer' in data) || data.offer is map) &&
+             (!('answer' in data) || data.answer is map) &&
+             (!('timestamp' in data) || data.timestamp is timestamp) &&
+             (!('callerPhoto' in data) || data.callerPhoto == null || data.callerPhoto is string);
+    }
+
+    function isValidAdminSetting(data) {
+      return (!('enabled' in data) || data.enabled is bool) &&
+             (!('isAdsEnabled' in data) || data.isAdsEnabled is bool) &&
+             (!('isSocialAdsEnabled' in data) || data.isSocialAdsEnabled is bool) &&
+             (!('adTimer' in data) || (data.adTimer is number && data.adTimer >= 0 && data.adTimer <= 30));
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.balance == 0 && request.resource.data.role == 'user';
+      allow update: if isAdmin() || (isOwner(userId) && 
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'phoneNumber', 'isOnline', 'lastSeen', 'balance', 'level', 'experience', 'wallpaper', 'currentGame', 'blockedUntil', 'clickCount', 'lastClickTime', 'ipAddress', 'deviceFingerprint', 'pendingPassword', 'mustChangePassword', 'fcmToken', 'webPushSubscriptions'])
+                    );
+      allow delete: if isAdmin() || isOwner(userId);
+    }
+
+    match /messages/{messageId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+    }
+
+    match /groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && (resource.data.creatorId == request.auth.uid || isAdmin());
+    }
+
+    match /statuses/{statusId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidStatus(request.resource.data);
+      allow update: if isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']);
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /withdrawals/{withdrawalId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidWithdrawal(request.resource.data) && request.resource.data.status == 'pending';
+      allow update: if isAdmin();
+    }
+
+    match /gameLogs/{logId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /admin_settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isValidAdminSetting(request.resource.data);
+    }
+
+    match /supportTickets/{ticketId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidSupportTicket(request.resource.data);
+      allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+    }
+
+    match /activityLogs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+    }
+
+    match /revenueStats/{statId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /gameSettings/{gameId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /system_configs/{configId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /system_configs_backups/{backupId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /library_books/{bookId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.token.email == "abdulrehmanhabib.com@gmail.com";
+    }
+
+    match /calls/{callId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.callerId == request.auth.uid && isValidCall(request.resource.data);
+      allow update: if isAuthenticated();
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.callerId == request.auth.uid);
+
+      match /offerCandidates/{candidateId} {
+        allow read, write: if isAuthenticated();
+      }
+
+      match /answerCandidates/{candidateId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+  }
+}

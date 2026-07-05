@@ -1,0 +1,6 @@
+{
+  "name": "Ulfah Chat",
+  "description": "Ulfah Chat: A comprehensive Islamic companion app featuring real-time messaging, Quran (16-line style), Hadith, and Madrasa readers, plus an integrated wallet system and earning games.",
+  "requestFramePermissions": ["microphone", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

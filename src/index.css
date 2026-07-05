@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400..700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+.Urdu {
+  font-family: 'Noto Nastaliq Urdu', serif;
+}
+
+:root {
+  --transition-speed: 0.3s;
+}
+
+[data-font-size="small"] { font-size: 14px; }
+[data-font-size="medium"] { font-size: 16px; }
+[data-font-size="large"] { font-size: 18px; }
+
+.dark {
+  --tw-bg-opacity: 1;
+  background-color: rgb(17 27 33 / var(--tw-bg-opacity));
+  color: #e9edef;
+}
+
+.dark body {
+  background-color: #111b21 !important;
+}
+
+.high-contrast {
+  --tw-ring-offset-width: 4px;
+  filter: contrast(1.2);
+}
+
+@layer base {
+  :root {
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  body {
+    @apply h-[100dvh] overflow-hidden bg-[#F0F2F5];
+    font-size: clamp(0.875rem, 2vw, 1rem);
+  }
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #D1D7DB;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #AAB2B7;
+}
+
+.safe-area-top {
+  padding-top: var(--safe-area-top);
+}
+
+.safe-area-bottom {
+  padding-bottom: var(--safe-area-bottom);
+}
+
+.layout-shield {
+  @apply w-full h-[100dvh] max-h-[100dvh] flex flex-col bg-white relative overflow-hidden;
+}
+
+.scrollable-content {
+  @apply flex-1 min-h-0 overflow-y-auto;
+}
+
+.fixed-header {
+  @apply sticky top-0 z-[100] w-full bg-[#F0F2F5];
+  padding-top: var(--safe-area-top);
+}
+
+.fixed-footer {
+  @apply sticky bottom-0 z-[100] w-full bg-[#F0F2F5] shrink-0;
+}
+
+/* Add the safe area classes manually to header/footer if needed, 
+   but for now let's just make sure the build passes */
+
+@layer utilities {
+  .animate-marquee {
+    display: inline-block;
+    padding-left: 100%;
+    animation: marquee 30s linear infinite;
+  }
+
+  @keyframes marquee {
+    0% { transform: translate(0, 0); }
+    100% { transform: translate(-100%, 0); }
+  }
+
+  .pause:hover {
+    animation-play-state: paused;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+}
